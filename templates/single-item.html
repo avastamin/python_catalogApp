@@ -1,0 +1,32 @@
+{% extends "main.html" %}
+{% block content %}
+{% include "header.html" %}
+	<div class="row divider green">
+		<div class="col-md-12"></div>
+	</div>
+
+<div class = 'flash'>
+		      {% with messages = get_flashed_messages() %}
+      {% if messages %}
+          
+        <ul>
+        {% for message in messages %}
+            <li> <strong> {{ message }} </strong> </li>
+        {% endfor %}
+        </ul>
+        {% endif %}
+    {% endwith %}
+
+</div>
+<div class="container main-wrap">
+	<div class="item-details">
+		<h3>{{ item.name }}</h3>
+		<p>{{ item.description }}</p>
+        {%if 'username' in session %}
+        <a href='{{url_for('editItem',catalog_slug= catalog.slug, item_slug=item.slug ) }}'>Edit</a> |
+        <a href='{{url_for('deleteItem', catalog_slug= catalog.slug, item_slug=item.slug ) }}'>Delete</a>
+        {% endif %}
+	</div>
+</div>
+
+{% endblock %}
