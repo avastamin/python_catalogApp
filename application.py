@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, jsonify, url_for, flash
+from functools import wraps
 from sqlalchemy import create_engine, asc
 from sqlalchemy.orm import sessionmaker
 from database_setup import Base, Catalog, Item, User
@@ -23,7 +24,7 @@ app = Flask(__name__)
 
 CLIENT_ID = json.loads(
     open('client_secrets.json', 'r').read())['web']['client_id']
-APPLICATION_NAME = "Restaurant Menu Application"
+APPLICATION_NAME = "Catalog Application"
 
 # Connect to Database and create database session
 engine = create_engine('sqlite:///catalogitem.db')
@@ -32,16 +33,21 @@ Base.metadata.bind = engine
 DBSession = sessionmaker(bind=engine)
 session = DBSession()
 
+# Create slug for category and item
 def slugify(text):
     text = unidecode.unidecode(text).lower()
     return re.sub(r'\W+', '-', text)
 
-@app.route('/catalog.json')
-def catalogJSON():
-    catalogs = session.query(Catalog).all()
-    items = session.query(Item).all()
-
-    return jsonify(item=[i.serialize for i in items], restaurants=[r.serialize for r in catalogs])
+# login required decorator
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' in login_session:
+            return f(*args, **kwargs)
+        else:
+            flash("You are not allowed to access there")
+            return redirect(url_for('login', next=request.url))
+    return decorated_function
 
 # Create anti-forgery state token
 @app.route('/login')
@@ -270,7 +276,7 @@ def getUserID(email):
 
 
 
-# Show all restaurants
+# Show all categories and items
 @app.route('/')
 @app.route('/catalogs/')
 def showCatalogs():
@@ -278,7 +284,7 @@ def showCatalogs():
     items = session.query(Item, Catalog).join(Catalog).order_by(asc(Item.name))
     return render_template('catalogs.html', catalogs=catalogs, items = items)
 
-# Show a restaurant menu
+# Show a category menu
 @app.route('/catalog/<string:catalog_slug>/')
 @app.route('/catalog/<string:catalog_slug>/menu/')
 def showMenu(catalog_slug):
@@ -287,11 +293,10 @@ def showMenu(catalog_slug):
     items = session.query(Item).filter_by(catalog_id=catalog.id)
     return render_template('catalog-menu.html',catalogs = catalogs, items=items, catalog=catalog)
 
-# Create a new restaurant
+# Create a new item
 @app.route('/item/new/', methods=['GET', 'POST'])
+@login_required
 def newItem():
-    if 'username' not in login_session:
-        return redirect('/login')
     if request.method == 'POST':
         slug = slugify(request.form['name'])
         newItem = Item(name=request.form['name'], slug=slug, description = request.form['description'],
@@ -314,7 +319,7 @@ def showItems(catalog_slug):
 
 
 
-#Show a restaurant menu
+#Show details of an item
 @app.route('/catalog/<string:catalog_slug>/item/<string:item_slug>/')
 def showItem(catalog_slug,item_slug):
     catalog = session.query(Catalog).filter_by(slug=catalog_slug).one()
@@ -323,14 +328,15 @@ def showItem(catalog_slug,item_slug):
     return render_template('single-item.html', item=item, catalog = catalog)
 
 @app.route('/catalog/<string:catalog_slug>/item/<string:item_slug>/edit', methods=['GET', 'POST'])
+@login_required
 def editItem(catalog_slug,item_slug):
     catalogs = session.query(Catalog).order_by(asc(Catalog.name))
     editedItem = session.query(Item).filter_by(slug=item_slug).one()
     catalog = session.query(Catalog).filter_by(slug=catalog_slug).one()
-    if 'username' not in login_session:
-        return redirect('/login')
+
     if editedItem.user_id != login_session['user_id']:
-        return "<script>function myFunction() {alert('You are not authorized to edit this item. Please create your own item in order to edit.');}</script><body onload='myFunction()''>"
+        return "<script>function myFunction() {alert('You are not authorized to edit this item." \
+               " Please create your own item in order to edit.');}</script><body onload='myFunction()''>"
 
     if request.method == 'POST':
         if request.form['name']:
@@ -338,24 +344,25 @@ def editItem(catalog_slug,item_slug):
         if request.form['description']:
             editedItem.description = request.form['description']
         if request.form['category']:
-            editedItem.price = request.form['category']
+            editedItem.category = request.form['category']
         session.add(editedItem)
         session.commit()
         flash('Menu Item Successfully Edited')
         return redirect(url_for('showItem', catalog_slug=catalog_slug, item_slug=item_slug))
     else:
-        return render_template('edititem.html', catalogs=catalogs, current_catalog=catalog, item=editedItem)
+        return render_template('edititem.html', catalogs=catalogs,
+                               current_catalog=catalog, item=editedItem)
 
 
-# Delete a menu item
+# Delete an item
 @app.route('/catalog/<string:catalog_slug>/item/<string:item_slug>/delete', methods=['GET', 'POST'])
+@login_required
 def deleteItem(catalog_slug,item_slug):
     #catalog = session.query(Catalog).filter_by(id=catalog_id).one()
     itemToDelete = session.query(Item).filter_by(slug=item_slug).one()
-    if 'username' not in login_session:
-        return redirect('/login')
     if itemToDelete.user_id != login_session['user_id']:
-        return "<script>function myFunction() {alert('You are not authorized to Delete this item. Please create your own item in order to delete.');}</script><body onload='myFunction()''>"
+        return "<script>function myFunction() {alert('You are not authorized to Delete this item." \
+               " Please create your own item in order to delete.');}</script><body onload='myFunction()''>"
 
     if request.method == 'POST':
         session.delete(itemToDelete)
@@ -390,8 +397,40 @@ def disconnect():
         flash("You were not logged in")
         return redirect(url_for('showCatalogs'))
 
+# JSON End Point
+@app.route('/catalog.json')
+def catalogJSON():
+    catalogs = session.query(Catalog).all()
+    items = session.query(Item).all()
+    return jsonify(item=[i.serialize for i in items], categories=[r.serialize for r in catalogs])
+
+# Show Category and it's items
+@app.route('/catalog/<string:catalog_slug>/JSON/')
+@app.route('/catalog/<string:catalog_slug>/menu/JSON/')
+def showMenuJSON(catalog_slug):
+    catalogs = session.query(Catalog).order_by(asc(Catalog.name))
+    catalog = session.query(Catalog).filter_by(slug=catalog_slug).one()
+    items = session.query(Item).filter_by(catalog_id=catalog.id)
+    return jsonify(item=[i.serialize for i in items], categories=[r.serialize for r in catalogs])
+
+# Show JSON End Point a Catalog and it's items
+@app.route('/catalog/<string:catalog_slug>/menu/JSON')
+def showItemsJSON(catalog_slug):
+    catalog = session.query(Catalog).filter_by(slug=catalog_slug).one()
+    items = session.query(Item).filter_by(
+        catalog_id=catalog.id).all()
+    return jsonify(item=[i.serialize for i in items], categories=[catalog.serialize])
+
+#Show JSON End point of an item
+@app.route('/catalog/<string:catalog_slug>/item/<string:item_slug>/JSON/')
+def showItemJSON(catalog_slug,item_slug):
+    catalog = session.query(Catalog).filter_by(slug=catalog_slug).one()
+    item = session.query(Item).filter_by(
+        slug=item_slug).one()
+    return jsonify(item=[item.serialize], category=[catalog.serialize])
+
 
 if __name__ == '__main__':
     app.secret_key = 'super_secret_key'
     app.debug = True
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=5001)
