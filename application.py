@@ -284,15 +284,6 @@ def showCatalogs():
     items = session.query(Item, Catalog).join(Catalog).order_by(asc(Item.name))
     return render_template('catalogs.html', catalogs=catalogs, items = items)
 
-# Show a category menu
-@app.route('/catalog/<string:catalog_slug>/')
-@app.route('/catalog/<string:catalog_slug>/menu/')
-def showMenu(catalog_slug):
-    catalogs = session.query(Catalog).order_by(asc(Catalog.name))
-    catalog = session.query(Catalog).filter_by(slug=catalog_slug).one()
-    items = session.query(Item).filter_by(catalog_id=catalog.id)
-    return render_template('catalog-menu.html',catalogs = catalogs, items=items, catalog=catalog)
-
 # Create a new item
 @app.route('/item/new/', methods=['GET', 'POST'])
 @login_required
@@ -402,15 +393,6 @@ def disconnect():
 def catalogJSON():
     catalogs = session.query(Catalog).all()
     items = session.query(Item).all()
-    return jsonify(item=[i.serialize for i in items], categories=[r.serialize for r in catalogs])
-
-# Show Category and it's items
-@app.route('/catalog/<string:catalog_slug>/JSON/')
-@app.route('/catalog/<string:catalog_slug>/menu/JSON/')
-def showMenuJSON(catalog_slug):
-    catalogs = session.query(Catalog).order_by(asc(Catalog.name))
-    catalog = session.query(Catalog).filter_by(slug=catalog_slug).one()
-    items = session.query(Item).filter_by(catalog_id=catalog.id)
     return jsonify(item=[i.serialize for i in items], categories=[r.serialize for r in catalogs])
 
 # Show JSON End Point a Catalog and it's items
